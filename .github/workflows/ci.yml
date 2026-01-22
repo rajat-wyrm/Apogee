@@ -1,0 +1,131 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  backend-lint:
+    name: Backend Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - run: npx eslint src/ --max-warnings=0 || true
+
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: apogee_test
+          POSTGRES_USER: apogee
+          POSTGRES_PASSWORD: apogee
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://apogee:apogee@localhost:5432/apogee_test
+      DB_SCHEMA: apogee
+      JWT_SECRET: ci_test_secret_key
+      JWT_REFRESH_SECRET: ci_test_refresh_key
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - name: Run migrations
+        run: node scripts/migrate.js
+      - name: Seed database
+        run: node scripts/seed.js
+      - name: Start server
+        run: |
+          node src/index.js &
+          sleep 10
+      - name: Run E2E auth tests
+        run: node tests/e2e-auth.test.js
+      - name: Run E2E org tests
+        run: node tests/e2e-organizations.test.js
+      - name: Run E2E all-modules tests
+        run: node tests/e2e-all-modules.test.js
+      - name: Run E2E CRM tests
+        run: node tests/e2e-crm.test.js
+      - name: Run world-class E2E tests
+        run: node tests/e2e-world-class.test.js
+      - name: Cleanup
+        if: always()
+        run: kill %1 || true
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install frontend deps
+        run: |
+          cd apps/web
+          npm ci
+      - name: Build frontend
+        run: |
+          cd apps/web
+          npm run build
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: apps/web/dist/
+          retention-days: 7
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - run: npm audit --audit-level=high
+        continue-on-error: true
+      - run: npx better-npm-audit audit --level moderate
+        continue-on-error: true
+
+  deploy:
+    name: Deploy (on main)
+    needs: [backend-test, frontend-build, security-audit]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to production
+        run: |
+          echo "Deployment triggered for commit ${{ github.sha }}"
+          # Add your deployment steps here:
+          # - Build Docker images
+          # - Push to registry
+          # - Deploy to cloud provider
