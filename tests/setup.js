@@ -1,0 +1,11 @@
+process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET = 'test-secret';
+process.env.JWT_REFRESH_SECRET = 'test-refresh';
+process.env.UPSTASH_REDIS_REST_URL = '';
+process.env.UPSTASH_REDIS_REST_TOKEN = '';
+process.env.STRIPE_SECRET_KEY = '';
+process.env.CLOUDINARY_API_KEY = 'test';
+process.env.CLOUDINARY_API_SECRET = 'test';
+process.env.CLOUDINARY_CLOUD_NAME = 'test';
+process.env.DISABLE_SOCKET = 'true';
+require('dotenv').config({ path: '.env' });
